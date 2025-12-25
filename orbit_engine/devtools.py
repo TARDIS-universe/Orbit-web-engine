@@ -62,6 +62,7 @@ class DeveloperTools:
             if not code.strip():
                 return
             try:
+                result = self.engine.evaluate(code)
                 result = self.engine.context.eval(code)
                 self._append_console(f">>> {code}\n{result}\n")
             except Exception as exc:  # noqa: BLE001
