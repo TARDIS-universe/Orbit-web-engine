@@ -63,8 +63,8 @@ class DeveloperTools:
                 return
             try:
                 result = self.engine.evaluate(code)
-                result = self.engine.context.eval(code)
-                self._append_console(f">>> {code}\n{result}\n")
+                display = "" if result is None else result
+                self._append_console(f">>> {code}\n{display}\n")
             except Exception as exc:  # noqa: BLE001
                 self._append_console(f"Error: {exc}\n")
             input_box.delete(0, tk.END)

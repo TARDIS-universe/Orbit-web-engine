@@ -1,4 +1,4 @@
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from .dom import DOMNode
 
@@ -48,17 +48,36 @@ def matches_selector(node: DOMNode, selector: str) -> bool:
 
 
 class StyleResolver:
-    def __init__(self, rules: List[StyleRule]):
+    def __init__(self, rules: List[StyleRule], class_defaults: Optional[Dict[str, Dict[str, str]]] = None):
         self.rules = rules
+        self.class_defaults = class_defaults or self._default_class_styles()
 
     def for_node(self, node: DOMNode) -> Dict[str, str]:
         style: Dict[str, str] = {}
         for rule in self.rules:
             if matches_selector(node, rule.selector):
                 style.update(rule.declarations)
+        for cls in node.attrs.get("class", "").split():
+            if cls and cls in self.class_defaults:
+                style.update(self.class_defaults[cls])
         if "style" in node.attrs:
             style.update(inline_style_to_dict(node.attrs["style"]))
         return style
+
+    def _default_class_styles(self) -> Dict[str, Dict[str, str]]:
+        return {
+            "text-center": {"text-align": "center"},
+            "text-right": {"text-align": "right"},
+            "muted": {"color": "#94a3b8"},
+            "card": {"background": "#1f2937", "color": "#e5e7eb", "padding": "12px"},
+            "panel": {"background": "#111827", "color": "#e5e7eb", "padding": "12px"},
+            "input": {"padding": "6px"},
+            "btn": {"padding": "8px", "background": "#1f2937", "color": "#e5e7eb"},
+            "btn-primary": {"padding": "8px", "background": "#2563eb", "color": "#f8fafc"},
+            "btn-secondary": {"padding": "8px", "background": "#475569", "color": "#f8fafc"},
+            "btn-danger": {"padding": "8px", "background": "#ef4444", "color": "#f8fafc"},
+            "badge": {"padding": "4px", "background": "#334155", "color": "#e5e7eb"},
+        }
 
     def accent_color(self, themes: Dict[str, Dict[str, str]], current: str) -> str:
         return themes.get(current, {}).get("accent", "#38bdf8")

@@ -1,5 +1,9 @@
+import base64
+import io
 from typing import Any, Dict, List, Optional
+import urllib.request
 import tkinter as tk
+from PIL import Image, ImageTk
 
 from .css import StyleResolver
 from .dom import DOMNode
@@ -20,6 +24,7 @@ class TkRenderer:
         self.id_map: Dict[str, RenderedElement] = {}
         self.class_map: Dict[str, List[RenderedElement]] = {}
         self.event_handlers: Dict[tk.Widget, Any] = {}
+        self._images: List[tk.PhotoImage] = []
         self.current_theme: str = "dark"
         self.themes: Dict[str, Dict[str, str]] = {
             "dark": {"bg": "#0f172a", "fg": "#e2e8f0", "accent": "#38bdf8", "muted": "#1f2937"},
@@ -114,7 +119,34 @@ class TkRenderer:
             if "value" in node.attrs:
                 entry.insert(0, node.attrs.get("value", ""))
             return entry
+        if tag == "img":
+            src = node.attrs.get("src", "")
+            alt = node.attrs.get("alt", "")
+            image = self._load_image(src)
+            if image:
+                self._images.append(image)
+                return tk.Label(parent, image=image, text=alt, compound=tk.TOP, anchor="center", justify="center")
+            return tk.Label(parent, text=alt or f"[missing image: {src}]", anchor="w", justify="left")
         return tk.Label(parent, text=f"<{tag}>", fg="#555", anchor="w", justify="left")
+
+    def _load_image(self, src: str) -> Optional[tk.PhotoImage]:
+        if not src:
+            return None
+        try:
+            data: bytes
+            if src.startswith("data:image/"):
+                _, _, b64 = src.partition("base64,")
+                data = base64.b64decode(b64)
+            elif src.startswith("http://") or src.startswith("https://"):
+                with urllib.request.urlopen(src, timeout=8) as resp:
+                    data = resp.read()
+            else:
+                with open(src, "rb") as file:
+                    data = file.read()
+            image = Image.open(io.BytesIO(data))
+            return ImageTk.PhotoImage(image)
+        except Exception:
+            return None
 
     def set_text(self, selector: str, value: str) -> None:
         for element in self._select(selector):

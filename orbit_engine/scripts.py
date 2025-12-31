@@ -1,25 +1,32 @@
 from typing import Dict, List, Optional, Tuple
 from tkinter import messagebox
 
-import js2py
-
 from .renderer import TkRenderer
 
 
 class ScriptEngine:
     """
-    A very small JavaScript-like evaluator implemented with only the Python
-    standard library. It performs a lightweight translation from common JS
-    syntax to Python and executes it in a sandboxed environment containing the
-    renderer helpers. This is intentionally minimal but sufficient for the demo
-    scripts (functions, const/let bindings, if/else, returns, function calls).
+    Lightweight, custom JavaScript-like evaluator.
+    Translates a small subset of JS syntax into Python and executes it against
+    a sandboxed environment that exposes renderer helpers (DOM setters/getters,
+    styles, events, cookies, and a stubbed fetch).
     """
 
     def __init__(self, renderer: TkRenderer, network_log: Optional[List[Tuple[str, str]]] = None, cookies: Optional[Dict[str, str]] = None):
         self.renderer = renderer
         self.network_log = network_log if network_log is not None else []
         self.cookies = cookies if cookies is not None else {}
-        safe_builtins = {"len": len, "min": min, "max": max, "str": str, "int": int, "float": float, "print": print}
+        safe_builtins = {
+            "len": len,
+            "min": min,
+            "max": max,
+            "str": str,
+            "int": int,
+            "float": float,
+            "bool": bool,
+            "print": print,
+            "range": range,
+        }
         self.env: Dict[str, object] = {"__builtins__": safe_builtins}
         self._bind_helpers()
 
@@ -44,23 +51,6 @@ class ScriptEngine:
             "None": None,
         }
         self.env.update(helpers)
-    def __init__(self, renderer: TkRenderer, network_log: Optional[List[Tuple[str, str]]] = None, cookies: Optional[Dict[str, str]] = None):
-        self.renderer = renderer
-        self.context = js2py.EvalJs()
-        self.network_log = network_log if network_log is not None else []
-        self.cookies = cookies if cookies is not None else {}
-        self._bind_helpers()
-
-    def _bind_helpers(self) -> None:
-        self.context.alert = lambda msg: messagebox.showinfo("Alert", str(msg))
-        self.context.setText = lambda selector, value: self.renderer.set_text(selector, str(value))
-        self.context.getText = lambda selector: self.renderer.get_text(selector)
-        self.context.setStyle = lambda selector, prop, value: self.renderer.set_style(selector, prop, str(value))
-        self.context.onClick = lambda selector, cb: self.renderer.on_click(selector, cb)
-        self.context.console = {"log": lambda *args: print("[JS]", *args)}
-        self.context.setCookie = lambda name, value: self._set_cookie(str(name), str(value))
-        self.context.getCookie = lambda name: self.cookies.get(str(name), "")
-        self.context.fetch = lambda url: self._fake_fetch(str(url))
 
     def run_scripts(self, scripts: List[str]) -> None:
         for script in scripts:
@@ -82,10 +72,6 @@ class ScriptEngine:
             exec(python_code, self.env)
             return None
 
-                self.context.execute(script)
-            except Exception as exc:  # noqa: BLE001
-                print(f"Script error: {exc}")
-
     def _set_cookie(self, name: str, value: str) -> None:
         self.cookies[name] = value
 
@@ -94,7 +80,7 @@ class ScriptEngine:
         return f"Fetched {url}"
 
     def _translate(self, js_code: str) -> str:
-        """Roughly translate JavaScript-like syntax into Python."""
+        """Translate a tiny subset of JS into executable Python code."""
 
         def normalize_line(line: str) -> str:
             replacements = {
@@ -115,11 +101,10 @@ class ScriptEngine:
 
         lines: List[str] = []
         indent = 0
+
         for raw_line in js_code.splitlines():
             stripped = raw_line.strip()
-            if not stripped:
-                continue
-            if stripped.startswith("//"):
+            if not stripped or stripped.startswith("//"):
                 continue
 
             while stripped.startswith("}"):
@@ -129,6 +114,10 @@ class ScriptEngine:
             if not stripped:
                 continue
 
+            opens_block = stripped.endswith("{")
+            if opens_block:
+                stripped = stripped[:-1].rstrip()
+
             if stripped.startswith("function "):
                 after = stripped[len("function ") :]
                 name, _, rest = after.partition("(")
@@ -137,22 +126,36 @@ class ScriptEngine:
                 indent += 1
                 continue
 
-            if stripped.endswith("{"):
-                header = stripped[:-1].rstrip()
-                if header.startswith("if "):
-                    header = header[3:]
-                    lines.append(f"{'    ' * indent}if {normalize_line(header)}:")
-                elif header.startswith("else"):
-                    lines.append(f"{'    ' * indent}else:")
-                else:
-                    lines.append(f"{'    ' * indent}{normalize_line(header)}:")
-                indent += 1
+            if stripped.startswith("return"):
+                expression = stripped[len("return") :].strip()
+                normalized = normalize_line(expression)
+                lines.append(f"{'    ' * indent}return {normalized}".rstrip())
                 continue
 
-            if stripped.endswith("}"):
+            if stripped.startswith("if "):
+                condition = normalize_line(stripped[len("if ") :])
+                lines.append(f"{'    ' * indent}if {condition}:")
+                if opens_block:
+                    indent += 1
+                continue
+
+            if stripped.startswith("else if "):
+                condition = normalize_line(stripped[len("else if ") :])
+                lines.append(f"{'    ' * indent}elif {condition}:")
+                if opens_block:
+                    indent += 1
+                continue
+
+            if stripped.startswith("else"):
+                lines.append(f"{'    ' * indent}else:")
+                if opens_block:
+                    indent += 1
                 continue
 
             normalized = normalize_line(stripped)
-            lines.append(f"{'    ' * indent}{normalized}")
+            suffix = ":" if opens_block else ""
+            lines.append(f"{'    ' * indent}{normalized}{suffix}")
+            if opens_block:
+                indent += 1
 
         return "\n".join(lines)
